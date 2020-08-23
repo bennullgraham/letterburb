@@ -374,12 +374,6 @@ edges = edges + goals  # truncation changes some edges at the boundary
 # map of origin vertex to possible destination vertices
 graph = build_graph(edges)
 
-#
-
-# home_ = (
-#     (977497.1692172779, -4302403.591923077),
-#     (977544.9539988617, -4302206.452253673)
-# )
 # home is the edge closest to the argued home latlon
 home = min(edges, key=lambda e: length((midpoint(e), args.home)))
 
