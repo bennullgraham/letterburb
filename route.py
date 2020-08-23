@@ -1,7 +1,6 @@
 import argparse
 import heapq
 import itertools as it
-from mapdata import get_mapdata
 import math
 import operator
 import re
@@ -32,9 +31,7 @@ import pandas as pd
 from pyproj import CRS
 from pyproj import Transformer
 
-# from mapdata import postcode
-# from mapdata import roads_0
-# from mapdata import roads_buffer
+from mapdata import get_mapdata
 
 
 def latlon_to_metres(lat, lon):
@@ -55,17 +52,17 @@ def latlon(val):
 
 parser = argparse.ArgumentParser()
 parser.add_argument("postcode", type=int, help="3xxx postcode to ride in")
-parser.add_argument("letter", type=str,
-                    help="ride streets beginning with this letter")
-parser.add_argument("home", type=latlon,
-                    help="lat,lon pair; where to start/finish rides")
+parser.add_argument("letter", type=str, help="ride streets beginning with this letter")
+parser.add_argument(
+    "home", type=latlon, help="lat,lon pair; where to start/finish rides"
+)
 args = parser.parse_args()
 
 Vertex = Tuple[float, float]
 Edge = Tuple[Vertex, Vertex]
 Route = Sequence[Edge]
 Solution = Sequence[Edge]
-T = TypeVar('T')
+T = TypeVar("T")
 
 
 def midpoint(edge: Edge) -> Vertex:
@@ -77,18 +74,12 @@ def midpoint(edge: Edge) -> Vertex:
 
 @lru_cache(maxsize=1024 * 1024)
 def distance(orig: Vertex, dest: Vertex) -> float:
-    return math.hypot(
-        dest[0] - orig[0],
-        dest[1] - orig[1]
-    )
+    return math.hypot(dest[0] - orig[0], dest[1] - orig[1])
 
 
 @lru_cache(maxsize=1024 * 1024)
 def length(edge: Edge) -> float:
-    return math.hypot(
-        edge[1][0] - edge[0][0],
-        edge[1][1] - edge[0][1]
-    )
+    return math.hypot(edge[1][0] - edge[0][0], edge[1][1] - edge[0][1])
 
 
 @lru_cache(maxsize=1024 * 1024)
@@ -237,7 +228,7 @@ def solution_to_route(sol: Solution) -> Optional[Route]:
     for origin, dest in pairwise(wps):
         route = nav(origin, dest)
         if route is None:
-            print(f'No route from {origin} to {dest}')
+            print(f"No route from {origin} to {dest}")
             return None
         subroutes.append(route)
     return tuple(flatten(subroutes))
@@ -253,18 +244,22 @@ def plot_edges(ax, edges: Sequence[Edge], offset=0, *args, **kwargs):
     of the route so the offset is too similar to help.
     """
     l = len(edges)
-    auto_color = 'color' not in kwargs
+    auto_color = "color" not in kwargs
     # for n, edge in enumerate(edges):
-        # TODO edge_geom_map
+    # TODO edge_geom_map
     for n, ((x1, y1), (x2, y2)) in enumerate(edges):
         r = n / l
         o = (2 * r * offset) - offset
         if auto_color:
-            kwargs['color'] = mpl.cm.rainbow(r)
-        ax.plot((x1 + o, x2 + o), (y1 + o, y2 + o), *args, **kwargs, solid_capstyle='round')
+            kwargs["color"] = mpl.cm.rainbow(r)
+        ax.plot(
+            (x1 + o, x2 + o), (y1 + o, y2 + o), *args, **kwargs, solid_capstyle="round"
+        )
 
 
 edge_geom_map = {}
+
+
 def get_edges(geoms) -> Iterable[Edge]:
     """
     Turn a geopandas geometry column into Edges.
@@ -273,11 +268,11 @@ def get_edges(geoms) -> Iterable[Edge]:
     beginning and end vertex. This is all you need for routing.
     """
     for geom in geoms:
-        if geom.geom_type == 'LineString':
+        if geom.geom_type == "LineString":
             edge = geom.coords[0], geom.coords[-1]
             edge_geom_map[edge] = geom
             yield edge
-        elif geom.geom_type == 'MultiLineString':
+        elif geom.geom_type == "MultiLineString":
             yield from get_edges(geom.geoms)
 
 
@@ -292,11 +287,11 @@ def build_graph(edges: Sequence[Edge]) -> Mapping[Vertex, Set[Vertex]]:
     return _g
 
 
-@lru_cache(maxsize=1024*1024)
+@lru_cache(maxsize=1024 * 1024)
 def score(solution: Solution) -> float:
     route = solution_to_route(solution)
     if route is None:
-        return 10**9
+        return 10 ** 9
     return route_length(route)
 
 
@@ -358,13 +353,13 @@ def generation(prev: Sequence[Solution]) -> Sequence[Solution]:
 
 
 mapdata = get_mapdata(postcode=args.postcode)
-roads_0 = mapdata['roads_0']
-roads_buffer = mapdata['roads_buffer']
-postcode = mapdata['postcode']
+roads_0 = mapdata["roads_0"]
+roads_buffer = mapdata["roads_buffer"]
+postcode = mapdata["postcode"]
 
 # remove monash freeway. there is a column in the frame that could remove
 # freeways, maintenance tracks etc. should do it that way instead.
-roads_0 = roads_0[~roads_0.EZIRDNMLBL.str.lower().str.contains('monash')]
+roads_0 = roads_0[~roads_0.EZIRDNMLBL.str.lower().str.contains("monash")]
 
 # goals are all segments of roads beginning with args.letter
 just = just_letters(roads_0, args.letter)
@@ -374,12 +369,12 @@ goals = list(get_edges(just.geometry))
 # postcode with concave bits this means you can cut across another postcode to
 # make a shorter route.
 edges = list(get_edges(roads_buffer.geometry))
-edges = edges + goals  # truncation changes some edges at the boundary 
+edges = edges + goals  # truncation changes some edges at the boundary
 
 # map of origin vertex to possible destination vertices
 graph = build_graph(edges)
 
-# 
+#
 
 # home_ = (
 #     (977497.1692172779, -4302403.591923077),
@@ -387,7 +382,6 @@ graph = build_graph(edges)
 # )
 # home is the edge closest to the argued home latlon
 home = min(edges, key=lambda e: length((midpoint(e), args.home)))
-
 
 
 # any goal unreachable from all five witnesses is removed as entirely
@@ -401,10 +395,10 @@ if len(goals) > 5:
             if nav(goal[0], witness[1]):
                 reach[goal] += 1
     removable = [g for g, r in reach.items() if r < 1]
-    print(f'Removing {len(removable)} goals because they are unreachable')
+    print(f"Removing {len(removable)} goals because they are unreachable")
     goals = [g for g, r in reach.items() if r >= 1]
 else:
-    print('Not enough roads to reliably check reachability')
+    print("Not enough roads to reliably check reachability")
 
 
 contigs = group_by_contiguity_2(goals)
@@ -412,24 +406,29 @@ goals_ = []
 for contig in contigs:
     l = route_length(tuple(contig))
     if l < 20:
-        print(f'Removing a goal road with {len(contig)} segments because the total length is only {l:0.2f}m')
+        print(
+            f"Removing a goal road with {len(contig)} segments because the total length is only {l:0.2f}m"
+        )
     else:
         goals_.extend(contig)
 goals = goals_
 
 
 if not goals:
-    print(f'No roads begining with {args.letter}')
+    print(f"No roads begining with {args.letter}")
     sys.exit(1)
+
 
 def plot_sol(sol: Solution, gen: int):
     km = round(score(sol) / 1000, 2)
     print(str(gen + 1).rjust(6), km)
     fig, ax = plt.subplots(dpi=100, figsize=(20, 20))
-    roads_buffer.plot(ax=ax, color='#333333')
-    postcode.buffer(500).difference(postcode).plot(ax=ax, color='#333333', alpha=0.65, lw=5, hatch='/')
-    plot_edges(ax, [home] + goals + [home], lw=8, color='white')
-    plot_edges(ax, [home] + goals + [home], lw=5, color='black')
+    roads_buffer.plot(ax=ax, color="#333333")
+    postcode.buffer(500).difference(postcode).plot(
+        ax=ax, color="#333333", alpha=0.65, lw=5, hatch="/"
+    )
+    plot_edges(ax, [home] + goals + [home], lw=8, color="white")
+    plot_edges(ax, [home] + goals + [home], lw=5, color="black")
     route = solution_to_route(sol)
     if route:
         plot_edges(ax, route, offset=0, lw=2)
@@ -437,14 +436,16 @@ def plot_sol(sol: Solution, gen: int):
     for s in ax.spines.values():
         s.set_visible(False)
     ax.set_title(f"“{args.letter}” gen {gen}: {km:0.2f}km", color="white")
-    ax.set_facecolor('#000000')
-    fig.set_facecolor('#000000')
+    ax.set_facecolor("#000000")
+    fig.set_facecolor("#000000")
     fig.set_tight_layout(True)
     fig.savefig(f"./tmp/{args.letter}/route-{gen:05d}.png")
     plt.close()
 
-subprocess.run(f'mkdir -p  ./tmp/{args.letter}/', shell=True)
-subprocess.run(f'rm ./tmp/{args.letter}/route*png', shell=True)
+
+subprocess.run(f"mkdir -p  ./tmp/{args.letter}/", shell=True)
+subprocess.run(f"rm ./tmp/{args.letter}/route*png", shell=True)
+
 
 def solve(goals: Sequence[Edge], max_gens: int = 5000, plot: bool = True) -> Solution:
     sols: Sequence[Solution] = [goals]
@@ -467,8 +468,8 @@ def solve(goals: Sequence[Edge], max_gens: int = 5000, plot: bool = True) -> Sol
         plot_sol(best, gen)
         return best
     except KeyboardInterrupt:
-        print('')
-        print('Quitting. Best result so far:')
+        print("")
+        print("Quitting. Best result so far:")
         plot_sol(best, gen)
         return best
 
@@ -487,7 +488,7 @@ standins = {}
 for contig in contigs:
     mid = len(contig) // 2
     standins[contig[mid]] = contig
-print(f'Pre-solving {len(standins)} standins of {len(goals)} goal roads for 200 gens')
+print(f"Pre-solving {len(standins)} standins of {len(goals)} goal roads for 200 gens")
 pre_best = solve(tuple(standins.keys()), max_gens=200, plot=False)
 
 goals = []
@@ -497,6 +498,8 @@ for standin in pre_best:
     goals.extend(standins[standin])
 
 
-print(f'Solving {len(goals)} goal roads for 10,000 generations. '
-      f'Ctrl-C to write best so far and quit.')
+print(
+    f"Solving {len(goals)} goal roads for 10,000 generations. "
+    f"Ctrl-C to write best so far and quit."
+)
 best = solve(tuple(goals), max_gens=10000)
