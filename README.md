@@ -10,9 +10,36 @@ an efficient way to ride between them. The possibility that I had not used the
 best route haunted my dreams. So I got the computer to figure out the routes
 for me.
 
+# Example
+
+![Example route](https://https://raw.githubusercontent.com/bennullgraham/letterburb/master/img/example.png)
+
+```sh
+python route.py 3101 y -- -37.801506,145.0071469
+No cached data for 3101. This will take a minute.
+Reading postcode boundaries from ./postcodes-vic/ll_gda94/sde_shape/whole/VIC/VMADMIN/layer/postcode_polygon.shp
+Reading roads from ./roads-vic/ll_gda2020/shape/whole_of_dataset/vic/VMTRANS/TR_ROAD.shp
+Removing 0 goals because they are unreachable
+Pre-solving 17 standins of 54 goal roads for 200 gens
+   200 12.45
+Solving 54 goal roads for 10,000 generations. Ctrl-C to write best so far and quit.
+     2 21.97
+     3 20.93
+     4 20.26
+     6 19.09
+    11 18.69
+    19 17.79
+    32 16.26
+    51 15.84
+   271 15.84
+  1499 15.8
+  1996 15.27
+ 10000 15.27
+```
+
 # Usage
 
-```
+```sh
 python route.py <postcode> <letter> -- <home-coords>
 ```
 
