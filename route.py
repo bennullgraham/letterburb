@@ -1,18 +1,15 @@
-import argparse
 import heapq
 import itertools as it
 import math
 import operator
-import re
 import subprocess
 import sys
 from collections import defaultdict
-from collections import namedtuple
 from functools import lru_cache
 from functools import reduce
+from pathlib import Path
 from random import choice
 from random import sample
-from typing import Any
 from typing import Dict
 from typing import Iterable
 from typing import List
@@ -22,50 +19,42 @@ from typing import Sequence
 from typing import Set
 from typing import Tuple
 from typing import TypeVar
-from typing import Union
 
-import geopandas
 import matplotlib as mpl
 import matplotlib.pyplot as plt
 import pandas as pd
-from pyproj import CRS
-from pyproj import Transformer
 
+from cli import args
 from mapdata import get_mapdata
 
 
-def latlon_to_metres(lat, lon):
-    # epsg 4326 is lat/lon; 3112 is "geoscience australia lambert" which has
-    # metres as its unit.
-    transformer = Transformer.from_crs(4326, 3112)
-    return transformer.transform(lat, lon)
-
-
-def latlon(val):
-    if not re.match(r"^[-\d\.]+,[-\d\.]+$", val):
-        raise ValueError("r{val} should be 12.34,56.78 lat lon pair")
-    lat, lon = map(float, val.split(","))
-
-    # switch to epsg 3112 which is used everywhere else
-    return latlon_to_metres(lat, lon)
-
-
-parser = argparse.ArgumentParser()
-parser.add_argument("postcode", type=int, help="3xxx postcode to ride in")
-parser.add_argument("letter", type=str, help="ride streets beginning with this letter")
-parser.add_argument(
-    "home", type=latlon, help="lat,lon pair; where to start/finish rides"
-)
-args = parser.parse_args()
-
+# a vertex is a point in our two-dimensional coordinate system
 Vertex = Tuple[float, float]
+
+# an edge is a link from one vertex to another. these are not bidirectional.
 Edge = Tuple[Vertex, Vertex]
+
+# a route is a journey through many vertices. in this codebase a route will be
+# either be a candidate solution (the series of vertices you should traverse to
+# visit every "goal road"), or a subset of that whole solution just from one
+# goal road to the next.
 Route = Sequence[Edge]
+
+# a solution has the same definition as a route, but is semantically different.
+# A solution is a series of edges *directly* between goal-roads, which is not
+# possible to navigate. Each solution has a deterministic route so this is all
+# we need to store.
 Solution = Sequence[Edge]
-T = TypeVar("T")
 
 
 def midpoint(edge: Edge) -> Vertex:
+    """
+    An imaginary vertex half way along an edge.
+
+    When measuring the distance to an edge, you could either pick the distance
+    to the closest of its two vertices, or the distance to its midpoint. This
+    function assists with the latter.
+    """
     return (
         (edge[0][0] + edge[1][0]) / 2,
         (edge[0][1] + edge[1][1]) / 2,
@@ -74,26 +63,57 @@ def midpoint(edge: Edge) -> Vertex:
 
 @lru_cache(maxsize=1024 * 1024)
 def distance(orig: Vertex, dest: Vertex) -> float:
+    """
+    Euclidian distance between `orig` and `dest`.
+
+    This is not technically correct on the surface of a sphere but for the
+    distances involved it's correct enough. Ignoring the sphere is also fine if
+    you're just ranking by distance.
+    """
     return math.hypot(dest[0] - orig[0], dest[1] - orig[1])
 
 
 @lru_cache(maxsize=1024 * 1024)
 def length(edge: Edge) -> float:
-    return math.hypot(edge[1][0] - edge[0][0], edge[1][1] - edge[0][1])
+    """
+    Length of `edge`. The unit depends on the coordinate system.
+
+    For edges which were generated from real road geometry, the length returned
+    is the length of that road with its twists and curves, as opposed to the
+    crow-flight distance.
+
+    Other edges use the crow-flight length.
+    """
+    try:
+        return edge_to_geom(edge).length
+    except KeyError:
+        return math.hypot(edge[1][0] - edge[0][0], edge[1][1] - edge[0][1])
 
 
 @lru_cache(maxsize=1024 * 1024)
 def route_length(route: Route) -> float:
+    """
+    The total real road length of `route`.
+    """
     return sum(map(length, route))
 
 
+T = TypeVar("T")
+
+
 def pairwise(iterable: Iterable[T]) -> Iterable[Tuple[T, T]]:
+    """
+    'abcd' -> 'ab', 'bc', 'cd'
+    """
     a, b = it.tee(iterable)
     next(b, None)
     return zip(a, b)
 
 
 def flatten(iterables: Iterable[Iterable]) -> Iterable:
+    """
+    'ab', 'xy', 'pq' -> 'abxypq'
+    """
     for iterable in iterables:
         yield from iterable
 
@@ -165,6 +185,16 @@ def group_by_contiguity_2(edges: Sequence[Edge]) -> List[List[Edge]]:
     # match?
 
     return contigs
+
+
+def edge_score(edge: Edge) -> float:
+    """
+    For ranking purposes, how good an edge is. Lower is better.
+
+    This is a pretty unexciting definition but TODO: account for cross-traffic
+    turns, elevation, stop signs, ...
+    """
+    return length(edge)
 
 
 @lru_cache(maxsize=1024 * 1024)
@@ -240,21 +270,21 @@ def plot_edges(ax, edges: Sequence[Edge], offset=0, *args, **kwargs):
 
     `offset` displaces the drawn edge gradually from (-offset, -offset) to
     (offset, offset). This sort of helps when trying to read routes which visit
-    the same road twice, but mostly a double-visit occurs in a proximate parts
-    of the route so the offset is too similar to help.
+    the same road twice, but mostly a double-visit occurs in proximate parts of
+    the route so the offset is too similar to help.
     """
     l = len(edges)
     auto_color = "color" not in kwargs
     # for n, edge in enumerate(edges):
-    # TODO edge_geom_map
-    for n, ((x1, y1), (x2, y2)) in enumerate(edges):
-        r = n / l
-        o = (2 * r * offset) - offset
+    for n, edge in enumerate(edges):
+
+        geom = edge_to_geom(edge)
+
         if auto_color:
-            kwargs["color"] = mpl.cm.rainbow(r)
-        ax.plot(
-            (x1 + o, x2 + o), (y1 + o, y2 + o), *args, **kwargs, solid_capstyle="round"
-        )
+            kwargs["color"] = mpl.cm.rainbow(n / l)
+
+        xs, ys = zip(*geom.coords)
+        ax.plot(xs, ys, *args, **kwargs, solid_capstyle="round")
 
 
 edge_geom_map = {}
@@ -265,7 +295,9 @@ def get_edges(geoms) -> Iterable[Edge]:
     Turn a geopandas geometry column into Edges.
 
     This discards detail about the shape of road segments; we just preserve the
-    beginning and end vertex. This is all you need for routing.
+    beginning and end vertex. This is all you need for routing. That extra
+    detail is stashed in edge_geom_map and can be pulled back out with
+    edge_to_geom(). Hope you like globals.
     """
     for geom in geoms:
         if geom.geom_type == "LineString":
@@ -274,6 +306,13 @@ def get_edges(geoms) -> Iterable[Edge]:
             yield edge
         elif geom.geom_type == "MultiLineString":
             yield from get_edges(geom.geoms)
+
+
+def edge_to_geom(edge: Edge):
+    if edge in edge_geom_map:
+        return edge_geom_map[edge]
+    else:
+        return edge_geom_map[tuple(reversed(edge))]
 
 
 def build_graph(edges: Sequence[Edge]) -> Mapping[Vertex, Set[Vertex]]:
@@ -292,7 +331,7 @@ def score(solution: Solution) -> float:
     route = solution_to_route(solution)
     if route is None:
         return 10 ** 9
-    return route_length(route)
+    return sum(map(edge_score, route))
 
 
 def singleswap(sol: Solution, swaps: int = 1) -> Solution:
@@ -357,9 +396,12 @@ roads_0 = mapdata["roads_0"]
 roads_buffer = mapdata["roads_buffer"]
 postcode = mapdata["postcode"]
 
-# remove monash freeway. there is a column in the frame that could remove
-# freeways, maintenance tracks etc. should do it that way instead.
+# remove monash freeway. there is a column in the frame that could be used to
+# remove freeways, maintenance tracks etc. TODO do it that way instead.
 roads_0 = roads_0[~roads_0.EZIRDNMLBL.str.lower().str.contains("monash")]
+
+# remove "unnamed road" too. these are footpaths in parks and similar.
+roads_0 = roads_0[~(roads_0.EZIRDNMLBL == "Unnamed")]
 
 # goals are all segments of roads beginning with args.letter
 just = just_letters(roads_0, args.letter)
@@ -433,12 +475,13 @@ def plot_sol(sol: Solution, gen: int):
     ax.set_facecolor("#000000")
     fig.set_facecolor("#000000")
     fig.set_tight_layout(True)
-    fig.savefig(f"./tmp/{args.letter}/route-{gen:05d}.png")
+    path = Path(f"./{args.outdir}/{args.postcode}/{args.letter}/route-{gen:05d}.png")
+    path.parent.mkdir(parents=True, exist_ok=True)
+    fig.savefig(path)
     plt.close()
 
 
-subprocess.run(f"mkdir -p  ./tmp/{args.letter}/", shell=True)
-subprocess.run(f"rm ./tmp/{args.letter}/route*png", shell=True)
+subprocess.run(f"rm ./tmp/{args.postcode}/{args.letter}/route*png", shell=True)
 
 
 def solve(goals: Sequence[Edge], max_gens: int = 5000, plot: bool = True) -> Solution:

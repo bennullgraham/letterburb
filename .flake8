@@ -1,0 +1,21 @@
+# flake8 does not support pyproject.toml so, great, we have yet another config
+# file!
+[flake8]
+ignore =
+    # E501 -- line length -- black is in charge of this and sometimes strays
+    # over the limit. we are OK with this.
+    E501,
+
+    # W503 -- pep8 changed its stance here and now flake8 enforces this
+    # backwardsly.  black generates the correct code and then flake8 complains
+    # about it. we therefore just ignore this code.
+    W503,
+
+    # E731 -- do not assign a lambda. We prefer to situationally choose the
+    # more readable of 'assign lambda' or 'declare function' at the
+    # author/reviewer's discretion.
+    E731,
+
+    # E203 -- whitespace before : -- black corrects this to have spaces, and flake
+    # is not pep8 compliant here in asking them to be removed.
+    E203
