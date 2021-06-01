@@ -1,4 +1,4 @@
-# Alphabike
+# Letterburb
 
 Melbourne, Australia had a savage 5km-radius lockdown for a few months in 2020.
 This knocked out my usual bike exercise routes. I started "burbing" my postcode
