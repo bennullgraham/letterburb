@@ -12,7 +12,7 @@ for me.
 
 # Example
 
-![Example route](https://https://raw.githubusercontent.com/bennullgraham/letterburb/master/img/example.png)
+![Example route](https://raw.githubusercontent.com/bennullgraham/letterburb/master/img/example.png)
 
 ```sh
 python route.py 3101 y -- -37.801506,145.0071469
